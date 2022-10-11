@@ -39,9 +39,11 @@ export const vercel = defineNitroPreset({
       // Write prerender functions
       for (const [key, value] of Object.entries(nitro.options.routes).filter(([_, value]) => value.swr || value.static)) {
         const funcPrefix = resolve(nitro.options.output.serverDir, '..' + generateEndpoint(key))
+        await fsp.mkdir(dirname(funcPrefix), { recursive: true })
         await fsp.symlink('./' + relative(dirname(funcPrefix), nitro.options.output.serverDir), funcPrefix + '.func', 'junction')
         await writeFile(funcPrefix + '.prerender-config.json', JSON.stringify({
-          expiration: value.static ? false : typeof value.swr === 'number' ? value.swr : 60
+          expiration: value.static ? false : typeof value.swr === 'number' ? value.swr : 60,
+          allowQuery: key.includes('/**') ? ['url'] : undefined
         }))
       }
     }
@@ -134,10 +136,10 @@ function generateBuildConfig (nitro: Nitro) {
         handle: 'filesystem'
       },
       ...Object.entries(nitro.options.routes)
-        .filter(([_, value]) => value.swr || value.static)
+        .filter(([key, value]) => (value.swr || value.static) && key.includes('/**'))
         .map(([key]) => ({
-          src: key.replace('/**', '/(.*)'),
-          dest: generateEndpoint(key)
+          src: key.replace(/^(.*)\/\*\*/, '(<?url>$1/.*)'),
+          dest: generateEndpoint(key) + '?url=$url'
         })),
       {
         src: '/(.*)',
@@ -148,5 +150,5 @@ function generateBuildConfig (nitro: Nitro) {
 }
 
 function generateEndpoint (url: string) {
-  return '/__nitro-' + withoutLeadingSlash(url.replace(/[^a-z]/g, '-'))
+  return url.includes('/**') ? '/__nitro-' + withoutLeadingSlash(url.replace(/\/\*\*.*/, '').replace(/[^a-z]/g, '-')) : url
 }
